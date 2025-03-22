@@ -1,0 +1,43 @@
+# Exclude data folder
+#data/*
+
+# Python bytecode and cache
+*.py[cod]
+*$py.class
+__pycache__/
+
+# Distribution/build artifacts
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+env/
+venv/
+ENV/
+venv.bak/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# data files
+datasets/
+
+# Logs and temporary files
+#logs/
+tmp/
+*.log
+*.tmp
+
+# Large binary/model files (tracked via Git LFS via .gitattributes)
+*.pt
+#*.pth
+*.ckpt
+*.bin
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# IDE-specific files
+.idea
