@@ -25,7 +25,7 @@ import submitit
 
 def parse_args():
     parser = argparse.ArgumentParser("Submitit for DINO-MC", parents=[main_dino_mc.get_args_parser()])
-    parser.add_argument("--ngpus", default=2, type=int, help="Number of gpus to request on each node")
+    parser.add_argument("--ngpus", default=1, type=int, help="Number of gpus to request on each node")
     parser.add_argument("--nodes", default=1, type=int, help="Number of nodes to request")
     parser.add_argument("--timeout", default=5600, type=int, help="Duration of the job")
 
@@ -63,10 +63,10 @@ class Trainer(object):
         self.args = args
 
     def __call__(self):
-        import main_dino
+        import main_dino_mc
 
         self._setup_gpu_args()
-        main_dino.train_dino(self.args)
+        main_dino_mc.train_dino(self.args)
 
     def checkpoint(self):
         import os

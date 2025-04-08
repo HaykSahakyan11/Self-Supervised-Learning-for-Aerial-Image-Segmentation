@@ -24,15 +24,17 @@ import math
 import random
 import datetime
 import subprocess
-from collections import defaultdict, deque
 import argparse
 import warnings
+from collections import defaultdict, deque
 
 import numpy as np
-import torch
-from torch import nn
 import torch.distributed as dist
+import torch
+import torchvision
+from torch import nn
 from PIL import ImageFilter, ImageOps
+
 
 
 class GaussianBlur(object):
@@ -115,6 +117,9 @@ def load_pretrained_weights(model, pretrained_weights, checkpoint_key, model_nam
             model.load_state_dict(state_dict, strict=True)
         else:
             print("There is no reference weights available for this model => We use random weights.")
+
+# load_pretrained_weights(model="a", pretrained_weights="a", checkpoint_key="a", model_name="vit_small", patch_size=16)
+# load_pretrained_weights(model="a", pretrained_weights="a", checkpoint_key="a", model_name="vit_base", patch_size=16)
 
 
 def load_pretrained_linear_weights(linear_classifier, model_name, patch_size):
@@ -844,7 +849,7 @@ def multi_scale(samples, model):
 # ======bit
 def make_numpy_grid(tensor_data, pad_value=0,padding=0):
     tensor_data = tensor_data.detach()
-    vis = utils.make_grid(tensor_data, pad_value=pad_value,padding=padding)
+    vis = torchvision.utils.make_grid(tensor_data, pad_value=pad_value,padding=padding)
     vis = np.array(vis.cpu()).transpose((1,2,0))
     if vis.shape[2] == 1:
         vis = np.stack([vis, vis, vis], axis=-1)

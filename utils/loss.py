@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -8,7 +7,8 @@ import cv2
 import numpy as np
 from torchmetrics.classification import BinaryJaccardIndex
 
-# 
+
+#
 # By D-LinkNet
 # https://github.com/zlckanata/DeepGlobe-Road-Extraction-Challenge
 # 
@@ -18,7 +18,7 @@ class dice_bce_loss(nn.Module):
         self.batch = batch
         self.bce_WithLogitsLoss = nn.BCEWithLogitsLoss()
         # BCELoss()
-        
+
     def soft_dice_coeff(self, y_true, y_pred):
         smooth = 0.0  # may change
         if self.batch:
@@ -30,17 +30,18 @@ class dice_bce_loss(nn.Module):
             j = y_pred.sum(1).sum(1).sum(1)
             intersection = (y_true * y_pred).sum(1).sum(1).sum(1)
         score = (2. * intersection + smooth) / (i + j + smooth)
-        #score = (intersection + smooth) / (i + j - intersection + smooth)#iou
+        # score = (intersection + smooth) / (i + j - intersection + smooth)#iou
         return score.mean()
 
     def soft_dice_loss(self, y_pred, y_true):
         loss = 1 - self.soft_dice_coeff(y_true, y_pred)
         return loss
-        
+
     def __call__(self, y_pred, y_out, y_true):
-        a =  self.bce_WithLogitsLoss(y_out, y_true)
-        b =  self.soft_dice_loss(y_pred, y_true)
+        a = self.bce_WithLogitsLoss(y_out, y_true)
+        b = self.soft_dice_loss(y_pred, y_true)
         return (0.5 * a + 0.5 * b) * 2
+
 
 class liou_loss(nn.Module):
     def __init__(self, batch=True):
@@ -48,7 +49,7 @@ class liou_loss(nn.Module):
         self.batch = batch
         self.classes = 2
         # self.iou = BinaryJaccardIndex()
-    
+
     def iou(self, inputs, target, is_target_variable=False):
         # inputs => N x Classes x H x W
         # target => N x H x W
@@ -73,25 +74,27 @@ class liou_loss(nn.Module):
         ## Sum over all pixels N x C x H x W => N x C
         union = union.view(N, self.classes, -1).sum(2)
 
-        iou = inter/ (union + 1e-8)
+        iou = inter / (union + 1e-8)
         return iou
-        
+
     def __call__(self, pred, mask):
         iou = torch.min(self.iou(pred, mask))
         loss = - torch.log(iou)
         print(iou, loss)
         return loss
 
-    
+
 # https://github.com/wgcban/ChangeFormer/blob/main/models/losses.py
 # miou loss
 from torch.autograd import Variable
-def to_one_hot_var(tensor, nClasses, requires_grad=False):
 
+
+def to_one_hot_var(tensor, nClasses, requires_grad=False):
     n, h, w = torch.squeeze(tensor, dim=1).size()
     one_hot = tensor.new(n, nClasses, h, w).fill_(0)
     one_hot = one_hot.scatter_(1, tensor.type(torch.int64).view(n, 1, h, w), 1)
     return Variable(one_hot, requires_grad=requires_grad)
+
 
 class mIoULoss(nn.Module):
     def __init__(self, weight=None, size_average=True, n_classes=2):
@@ -128,7 +131,8 @@ class mIoULoss(nn.Module):
         ## Return average loss over classes and batch
         return -torch.mean(loss)
 
-#Minimax iou
+
+# Minimax iou
 class mmIoULoss(nn.Module):
     def __init__(self, n_classes=2):
         super(mmIoULoss, self).__init__()
@@ -158,13 +162,38 @@ class mmIoULoss(nn.Module):
         ## Sum over all pixels N x C x H x W => N x C
         union = union.view(N, self.classes, -1).sum(2)
 
-        iou = inter/ (union + 1e-8)
+        iou = inter / (union + 1e-8)
 
-        #minimum iou of two classes
+        # minimum iou of two classes
         min_iou = torch.min(iou)
 
-        #loss
-        loss = -min_iou-torch.mean(iou)
+        # loss
+        loss = -min_iou - torch.mean(iou)
         return loss
 
 
+class DiceCrossEntropyLoss(nn.Module):
+    def __init__(self, weight=None, ignore_index=-100):
+        super().__init__()
+        self.ce = nn.CrossEntropyLoss(weight=weight, ignore_index=ignore_index)
+
+    def forward(self, y_pred, y_true):
+        # y_pred: [B, C, H, W] (raw logits)
+        # y_true: [B, H, W]   (class indices)
+
+        ce_loss = self.ce(y_pred, y_true)
+
+        # One-hot encode y_true to [B, C, H, W]
+        num_classes = y_pred.shape[1]
+        y_true_one_hot = F.one_hot(y_true, num_classes).permute(0, 3, 1, 2).float()
+
+        y_pred_soft = F.softmax(y_pred, dim=1)
+        dice_loss = self.soft_dice_loss(y_true_one_hot, y_pred_soft)
+
+        return ce_loss + dice_loss
+
+    def soft_dice_loss(self, y_true, y_pred, smooth=1e-5):
+        intersection = (y_pred * y_true).sum(dim=(2, 3))
+        union = y_pred.sum(dim=(2, 3)) + y_true.sum(dim=(2, 3))
+        dice = (2. * intersection + smooth) / (union + smooth)
+        return 1 - dice.mean()

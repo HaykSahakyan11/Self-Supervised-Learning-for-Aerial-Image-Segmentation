@@ -1,0 +1,17 @@
+torch==2.5.1
+torchaudio==2.5.1
+torchmetrics
+torchvision
+transformers
+matplotlib
+einops
+rasterio
+mmcv==2.1.0
+mmsegmentation==1.2.2
+ftfy
+pytorch-lightning
+pytorch-lightning-bolts
+scikit-learn
+wandb
+submitit
+albumentations

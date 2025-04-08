@@ -23,8 +23,13 @@ venv.bak/
 # data files
 datasets/
 
+# Weights and checkpoints
+model_weights/
+checkpoints/
+
 # Logs and temporary files
 #logs/
+wandb/
 tmp/
 *.log
 *.tmp
