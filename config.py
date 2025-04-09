@@ -20,13 +20,20 @@ def set_seed(seed=42):
 
 
 BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
-
+device = "cuda" if torch.cuda.is_available() else "cpu"
 
 class CONFIG:
     def __init__(self):
         self.base_path = BASE_PATH
         self.dataset_path = os.path.join(BASE_PATH, 'datasets')
         self.model_weights_path = os.path.join(BASE_PATH, 'model_weights')
+
+        # TODO Update the paths
+        self.best_models = {
+            'UAVID': os.path.join(self.model_weights_path, 'upernet/best_checkpoint_dinomcvitsmall_uavid_2_with_transformation.pth'),
+            'POTSDAM': os.path.join(self.model_weights_path, 'upernet/best_checkpoint_dinomcvitsmall_potsdam_2.pth'),
+            'LOVEDA': os.path.join(self.model_weights_path, 'upernet/best_checkpoint_dinomcvitsmall_loveda_2.pth')
+        }
 
         self.dino_mc_checkpoint = {
             'vit_small': {
@@ -57,7 +64,9 @@ class CONFIG:
             "test": os.path.join(self.dataset_path, 'LOVEDA/Test')
         }
 
+
+
         self.batch_size = 4
         self.image_size = 224
 
-        self.wandb_api_key = "c7bb6c8c1316577f4e864eb2de43c2165825172c"
+        self.wandb_api_key = ""

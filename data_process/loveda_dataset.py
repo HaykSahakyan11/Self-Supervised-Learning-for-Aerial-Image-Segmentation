@@ -148,7 +148,11 @@ def transform_train(img, mask, image_size=(512, 512)):
     img, mask = joint_resize(img, mask, size=image_size)
     img, mask = joint_random_horizontal_flip(img, mask, p=0.5)
     img, mask = joint_random_vertical_flip(img, mask, p=0.2)
+
+    # Image-only
     img = image_only_tf_train(img)
+
+    # Mask-only
     mask = transform_mask(mask)
     return img, mask
 
@@ -160,9 +164,16 @@ def transform_mask(mask):
 
 def transform_val(img, mask, image_size=(512, 512)):
     img, mask = joint_resize(img, mask, size=image_size)
+
     img = image_only_tf_val(img)
     mask = transform_mask(mask)
     return img, mask
+
+
+def transform_test(img, image_size=(512, 512)):
+    img = img.resize(image_size, resample=Image.BICUBIC)
+    img = image_only_tf_val(img)
+    return img
 
 
 class LOVEDADataset(Dataset):
@@ -188,7 +199,7 @@ class LOVEDADataset(Dataset):
         img_path = self.image_paths[idx]
         mask_path = self.mask_paths[idx]
 
-        img = Image.open(img_path).convert("RGB")
+        img = Image.open(img_path).convert('RGB')
         mask = Image.open(mask_path)  # class indices from 0–7 (0 = NoData)
 
         if self.mode == 'train':

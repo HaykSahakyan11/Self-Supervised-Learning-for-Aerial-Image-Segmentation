@@ -39,17 +39,11 @@ STD = [58.395 / 255.0, 57.12 / 255.0, 57.375 / 255.0]
 image_only_tf_train = transforms.Compose([
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05),
     transforms.ToTensor(),
-    # # TODO test mean, std
-    # transforms.Normalize(mean=(0.485, 0.456, 0.406),
-    #                      std=(0.229, 0.224, 0.225)),
     transforms.Normalize(mean=MEAN, std=STD),
 ])
 
 image_only_tf_val = transforms.Compose([
     transforms.ToTensor(),
-    # # TODO test mean, std
-    # transforms.Normalize(mean=(0.485, 0.456, 0.406),
-    #                      std=(0.229, 0.224, 0.225)),
     transforms.Normalize(mean=MEAN, std=STD),
 ])
 
@@ -139,18 +133,29 @@ def transform_train(img, mask, image_size=(512, 512)):
     img = image_only_tf_train(img)
 
     # Mask-only
-    mask = rgb_to_class(mask, PALETTE2CLASS)
-    mask = torch.from_numpy(mask).long()
+    mask = transform_mask(mask)
 
     return img, mask
+
+def transform_mask(mask):
+    # Mask-only
+    mask = rgb_to_class(mask, PALETTE2CLASS)
+    mask = torch.from_numpy(mask).long()
+    return mask
 
 
 def transform_val(img, mask, image_size=(512, 512)):
     img, mask = joint_resize(img, mask, size=image_size)
+
     img = image_only_tf_val(img)
-    mask = rgb_to_class(mask, PALETTE2CLASS)
-    mask = torch.from_numpy(mask).long()
+    mask = transform_mask(mask)
     return img, mask
+
+
+def transform_test(img, image_size=(512, 512)):
+    img = img.resize(image_size, resample=Image.BICUBIC)
+    img = image_only_tf_val(img)
+    return img
 
 
 class POTSDAMDataset(Dataset):
@@ -195,6 +200,9 @@ class POTSDAMDataset(Dataset):
             img, mask = transform_train(img, mask, image_size=(self.image_size, self.image_size))
         elif self.mode == 'val':
             img, mask = transform_val(img, mask, image_size=(self.image_size, self.image_size))
+        elif self.mode == 'test':
+            img = transform_test(img, image_size=(self.image_size, self.image_size))
+            return img
         else:
             raise ValueError("Mode must be 'train' or 'val'")
 

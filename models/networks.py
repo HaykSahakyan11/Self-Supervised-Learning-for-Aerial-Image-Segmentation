@@ -3,8 +3,9 @@ from mmseg.models import BACKBONES, SEGMENTORS
 from mmseg.models.backbones import VisionTransformer
 from mmseg.models.segmentors import EncoderDecoder
 
-from config import CONFIG
+from config import CONFIG, set_seed
 
+set_seed(seed=42)
 config = CONFIG()
 
 
@@ -57,7 +58,11 @@ class DinoMCViT(VisionTransformer):
 
 @SEGMENTORS.register_module()
 class UPerNetDinoMCViT(EncoderDecoder):
-    def __init__(self, num_classes=8, backbone_type='DinoMCViTSmall', backbone_checkpoint=None, img_size=224):
+    def __init__(
+            self, num_classes=8, backbone_type='DinoMCViTSmall',
+            backbone_checkpoint=None, img_size=224,
+            patch_size=8
+    ):
         if backbone_type == 'DinoMCViTSmall':
             embed_dims, num_heads = 384, 6
             out_indices = (3, 5, 7, 11)
@@ -71,7 +76,7 @@ class UPerNetDinoMCViT(EncoderDecoder):
         backbone_cfg = dict(
             type='DinoMCViT',
             img_size=img_size,
-            patch_size=8,
+            patch_size=patch_size,
             embed_dims=embed_dims,
             num_layers=12,
             num_heads=num_heads,
