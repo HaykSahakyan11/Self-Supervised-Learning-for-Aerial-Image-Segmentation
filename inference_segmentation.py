@@ -2,7 +2,10 @@ import os
 import torch
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
 import numpy as np
+import warnings
+import albumentations as A
 
 from PIL import Image
 
@@ -12,10 +15,9 @@ from config import CONFIG, set_seed, device
 
 set_seed(seed=42)
 config = CONFIG()
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# DATASET_NAMES = ['uavid', 'potsdam', 'loveda']
 BACKBONE_TYPES = ['dinomcvit', 'dinomcvitsmall', 'dinomcvitbase', 'vitsmall', 'vitbase', 'vit']
-# BACKBONE_SIZES = ['small', 'base']
 
 DATASETS = {
     'uavid': {
@@ -63,16 +65,13 @@ def inference(image_path, output_path=None, image_size=224,
     dataset_info = DATASETS[dataset]
     dataset_module = dataset_info['module']
     seg_model_ckpt = dataset_info['model_ckpt']
-    # TODO for testing
-    # seg_model_ckpt = "checkpoints/best_checkpoint_dinomcvitsmall_uavid_2_with_transformation.pth"
-    # seg_model_ckpt = "checkpoints/best_checkpoint_dinomcvitsmall_potsdam_2.pth"
-    # seg_model_ckpt = "checkpoints/best_checkpoint_dinomcvitsmall_loveda_2.pth"
 
     backbone_type = BACKBONE_CONFIG[backbone_size]['type']
     backbone_ckpt_key = BACKBONE_CONFIG[backbone_size]['ckpt_key']
     backbone_ckpt = config.dino_mc_checkpoint[backbone_ckpt_key][str(patch_size)]
 
     num_classes = len(dataset_module.CLASSES)
+    class_names = dataset_module.CLASSES
     transform_fn = dataset_module.transform_test
     class_to_rgb = dataset_module.class_to_rgb
     class_palette = dataset_module.CLASS2PALETTE
@@ -93,7 +92,7 @@ def inference(image_path, output_path=None, image_size=224,
     )
 
     mask_tensor = predict_seg_mask(model, img_tensor)
-    return mask_tensor.cpu(), class_to_rgb, palette_class
+    return mask_tensor.cpu(), class_to_rgb, palette_class, class_names
 
 
 def load_trained_model(
@@ -131,63 +130,127 @@ def predict_seg_mask(model, image_tensor):
     return mask.squeeze(0).cpu()
 
 
-def visualize_result(image_path, mask_tensor, rgb_mask=None):
-    original_img = Image.open(image_path).convert("RGB")
-    original_img = original_img.resize(mask_tensor.shape[::-1], resample=Image.BICUBIC)
-
-    fig, axs = plt.subplots(1, 2, figsize=(12, 6))
-    axs[0].imshow(original_img)
-    axs[0].set_title("Original Image")
-    axs[0].axis("off")
-
-    axs[1].imshow(rgb_mask)
-    axs[1].set_title("Predicted Segmentation")
-    axs[1].axis("off")
-    plt.tight_layout()
-    plt.show()
-
-
 def visualize_segmentation(
         image_path,
         pred_mask,
         class_to_rgb_fn=None,
         gt_mask_path=None,
         palette_to_class=None,
-        figsize=(18, 6)
+        class_names=None,
+        final_size=(224, 224),
+        show=True,
+        figsize=(20, 8),
+        font_size=16,
+        legend_ncol=4,
 ):
     class_to_palette = {v: k for k, v in palette_to_class.items()}
-    pred_rgb_mask = class_to_rgb(pred_mask.numpy(), class_to_palette)
+    if final_size is None:
+        w, h = pred_mask.shape[1], pred_mask.shape[0]
+    else:
+        w, h = final_size
 
+    resize = A.Resize(height=h, width=w, interpolation=Image.BICUBIC)
+
+    def resize_img(pil_img):
+        return resize(image=np.array(pil_img))["image"]
+
+    # Original image
     original_img = Image.open(image_path).convert("RGB")
-    original_img = original_img.resize(pred_rgb_mask.shape[:2][::-1], resample=Image.BICUBIC)
+    original_img = resize_img(original_img)
+
+    # Prediction mask
+    pred_rgb_mask = class_to_rgb_fn(pred_mask.numpy(), class_to_palette)
+    pred_rgb_mask = resize_img(Image.fromarray(pred_rgb_mask))
 
     panels = [original_img]
     titles = ["Original Image"]
 
-    # TODO: Add a check for gt_mask_path
     if gt_mask_path and palette_to_class:
-        gt_rgb = Image.open(gt_mask_path).convert("RGB")
-        gt_np = np.array(gt_rgb)
-        gt_class_mask = np.zeros((gt_np.shape[0], gt_np.shape[1]), dtype=np.uint8)
-
-        for rgb, class_idx in palette_to_class.items():  # Use PALETTE2CLASS
-            match = np.all(gt_np == rgb, axis=-1)
-            gt_class_mask[match] = class_idx
-
-        gt_rgb_mask = class_to_rgb_fn(gt_class_mask, class_to_palette)  # use CLASS2PALETTE for RGB coloring
+        gt_class_mask = load_gt_class_mask(gt_mask_path, palette_to_class)
+        gt_rgb_mask = class_to_rgb_fn(gt_class_mask, class_to_palette)
+        gt_rgb_mask = resize_img(Image.fromarray(gt_rgb_mask))
         panels.append(gt_rgb_mask)
         titles.append("Ground Truth Mask")
 
     panels.append(pred_rgb_mask)
     titles.append("Predicted Mask")
 
-    fig, axs = plt.subplots(1, len(panels), figsize=figsize)
+    # --- Plotting ---
+    n_panels = len(panels)
+    fig_height = 5
+    fig_width = 5 * n_panels
+    fig, axs = plt.subplots(1, n_panels, figsize=(fig_width, fig_height))
+
+    if n_panels == 1:
+        axs = [axs]
+
     for ax, img, title in zip(axs, panels, titles):
         ax.imshow(img)
-        ax.set_title(title)
+        ax.set_title(title, fontsize=font_size)
         ax.axis("off")
-    plt.tight_layout()
-    plt.show()
+
+    # --- Legend ---
+    if class_names:
+        handles = [
+            mpatches.Patch(
+                color=np.array(class_to_palette[i]) / 255.0,
+                label=class_names[i]
+            ) for i in range(len(class_names))
+        ]
+
+        fig.subplots_adjust(bottom=0.25)
+        fig.legend(
+            handles=handles,
+            loc='lower center',
+            bbox_to_anchor=(0.5, 0.05),
+            ncol=legend_ncol,
+            fontsize=font_size - 2,
+            frameon=False
+        )
+
+    # --- Save or show ---
+    if save_path:
+        plt.savefig(save_path, bbox_inches='tight', dpi=300)
+        print(f"[INFO] Saved visualization to {save_path}")
+
+    if show:
+        plt.show()
+    else:
+        plt.close()
+
+
+def load_gt_class_mask(gt_path: str, palette_to_class: dict) -> np.ndarray:
+    """
+    Loads and converts ground truth segmentation mask to class indices.
+    Supports:
+        - 2D grayscale label masks (e.g., LOVEDA)
+        - 3D RGB-encoded masks (e.g., UAVID, POTSDAM)
+
+    Args:
+        gt_path (str): Path to ground truth image.
+        palette_to_class (dict): RGB tuple -> class index mapping (for RGB masks only).
+
+    Returns:
+        np.ndarray: Class mask (H, W)
+    """
+    gt_img = Image.open(gt_path)
+    gt_np = np.array(gt_img)
+
+    if len(gt_np.shape) == 2:  # 2D grayscale: direct class indices
+        return gt_np.astype(np.uint8)
+
+    elif len(gt_np.shape) == 3 and gt_np.shape[2] == 3:  # RGB mask
+        h, w, _ = gt_np.shape
+        flat_rgb = gt_np.reshape(-1, 3)
+        class_mask_flat = np.zeros((flat_rgb.shape[0],), dtype=np.uint8)
+
+        for i, rgb in enumerate(map(tuple, flat_rgb)):
+            class_mask_flat[i] = palette_to_class.get(rgb, 0)
+
+        return class_mask_flat.reshape(h, w)
+
+    else:
+        raise ValueError(f"Unsupported mask format: shape={gt_np.shape}")
 
 
 def save_prediction(rgb_mask, output_path):
@@ -199,19 +262,19 @@ def save_prediction(rgb_mask, output_path):
 if __name__ == "__main__":
     image_size = config.image_size  # 224
 
-    # test_image_path = "tmp/images_to_test/seq1_000900.png"  # path to input image
-    # save_path = "tmp/predictions/seq1_000900_mask_pred.png"
-    # val_path = "tmp/images_to_test/seq1_000900_mask.png"
+    test_image_path = "tmp/images_to_test/seq1_000900.png"  # path to input image
+    save_path = "tmp/predictions/seq1_000900_mask_pred.png"
+    val_path = "tmp/images_to_test/seq1_000900_mask.png"
 
-    test_image_path = "tmp/images_to_test/3.png"  # path to input image
-    save_path = "tmp/predictions/3_mask_pred.png"
-    val_path = "tmp/images_to_test/3_mask.png"
+    # test_image_path = "tmp/images_to_test/3.png"  # path to input image
+    # save_path = "tmp/predictions/3_mask_pred.png"
+    # val_path = "tmp/images_to_test/3_mask.png"
 
     # test_image_path = "tmp/images_to_test/Image_24.tif"  # path to input image
     # save_path = "tmp/predictions/Image_24_mask_pred.tif"
-    # save_path = "tmp/images_to_test/Label_24.tif"
+    # val_path = "tmp/images_to_test/Label_24.tif"
 
-    mask_tensor, class_to_rgb, palette_class = inference(
+    mask_tensor, class_to_rgb, palette_class, class_names = inference(
         image_path=test_image_path,
         output_path=save_path,
         image_size=image_size,
@@ -226,5 +289,7 @@ if __name__ == "__main__":
         pred_mask=mask_tensor,
         gt_mask_path=val_path,
         class_to_rgb_fn=class_to_rgb,
-        palette_to_class=palette_class
+        palette_to_class=palette_class,
+        final_size=(512, 512),
+        class_names=class_names,
     )
