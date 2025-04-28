@@ -14,8 +14,7 @@ from utils.metric_tool import (
     write_epoch_csv
 )
 from utils.loss import DiceCrossEntropyLoss
-from models.networks import UPerNetDinoMCViT
-
+from models.networks import UPerNetDinoDeiT
 from config import CONFIG, set_seed
 
 set_seed(seed=42)
@@ -33,20 +32,21 @@ def train_model(
     csv_file_name = f'epoch_results_{model.backbone_type.lower()}_{experiment_name}.csv'
     csv_path = os.path.join(save_dir, csv_file_name)
 
-    lr = 3e-4
-    weight_decay = 1e-4
-    eta_min = 1e-6
+    lr = config.train_configs['learning_rate']
+    weight_decay = config.train_configs['weight_decay']
+    eta_min = config.train_configs['eta_min']
     interpolation_mode = 'bilinear'
 
     wandb.init(
-        project="DINO MC Segmentation",
+        project="DinoDeiT Segmentation Training",
         name=f"experiment_{experiment_name}",
         config={
             "learning_rate": lr,
-            "architecture": "ViT",
+            "architecture": "DinoDeiT",
             # "dataset": "LOVEDA",
-            "dataset": "POTSDAM",
-            # "dataset": "UAVID",
+            # "dataset": "POTSDAM",
+            "dataset": "UAVID",
+            "decode": "upernet_uperhead",
             "interpolation_mode": interpolation_mode,
             "weight_decay": weight_decay,
             "eta_min": eta_min,
@@ -54,12 +54,14 @@ def train_model(
             "patch_size": patch_size
         })
 
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    optimizer = optim.AdamW(model.parameters(), lr=3e-4, weight_decay=1e-4)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, epochs, eta_min=1e-6)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=epochs, eta_min=eta_min
+    )
 
-    # TODO: loss_function.dice_bce_loss()
     # criterion = DiceCrossEntropyLoss(ignore_index=0)
     criterion = DiceCrossEntropyLoss()
     # criterion = nn.CrossEntropyLoss()
@@ -96,7 +98,6 @@ def train_model(
         with torch.no_grad():
             for batch_idx, (images, masks) in enumerate(tqdm(val_loader, desc=f"Epoch {epoch} - Validation")):
                 images = images.to(device)
-                # seg_logits = model.inference(images, rescale=True)
                 seg_logits = model(images)
                 seg_logits = nn.functional.interpolate(seg_logits, size=masks.shape[-2:], mode='bilinear',
                                                        align_corners=False)
@@ -159,7 +160,7 @@ def train_model(
         # Now update (write) the CSV after each epoch
         write_epoch_csv(epoch_data, csv_path)
 
-    print(f"\nTraining complete. Best IoU={best_miou:.4f} at epoch={best_epoch}.")
+    print(f"\nTraining finished. Best IoU={best_miou:.4f} at epoch={best_epoch}.")
     wandb.finish()
 
 if __name__ == "__main__":
@@ -167,24 +168,28 @@ if __name__ == "__main__":
 
     config = CONFIG()
     backbone_type = 'vit_small'
-    patch_size = 16
-    backbone_ckpt = config.dino_mc_checkpoint[backbone_type][str(patch_size)]
     batch_size = config.batch_size
-    image_size = 224
+    image_size = config.image_size  # 224
+    patch_size = config.patch_size  # 8 or 16
+    backbone_ckpt = config.dino_deit[backbone_type][str(patch_size)]
 
-    # UAVID training
-    train_data_root = config.UAVID['train']
-    val_data_root = config.UAVID['val']
+    # # UAVID training
+    # train_data_root = config.UAVID['train']
+    # val_data_root = config.UAVID['val']
+
+    # UAVID_patched training
+    train_data_root = config.UAVID_patched['4']['no_overlap']['train']
+    val_data_root = config.UAVID_patched['4']['no_overlap']['val']
 
     train_dataset = UAVIDDataset(
         data_root=train_data_root, img_dir='images', mask_dir='labels', mode='train',
         img_suffix='.png', mask_suffix='.png',
-        image_size=224, transform=None, target_transform=None
+        image_size=image_size, transform=None, target_transform=None
     )
     val_dataset = UAVIDDataset(
         data_root=val_data_root, img_dir='images', mask_dir='labels', mode='val',
         img_suffix='.png', mask_suffix='.png',
-        image_size=224, transform=None, target_transform=None
+        image_size=image_size, transform=None, target_transform=None
     )
 
     # # Potsdam training
@@ -213,14 +218,17 @@ if __name__ == "__main__":
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     num_classes = train_dataset.num_classes
-    model = UPerNetDinoMCViT(
+    model = UPerNetDinoDeiT(
         num_classes=num_classes,
-        backbone_type='DinoMCViTSmall',
-        backbone_checkpoint=backbone_ckpt,
-        img_size=image_size
+        backbone_type='DinoDeiTSmall', # DinoDeiTBase
+        img_size=image_size,
+        patch_size=patch_size,
+        feature_stack='pyramid',
+        use_neck=False
     )
 
     train_model(model, train_loader, val_loader, epochs=100, device='cuda',
                 # save_dir='./checkpoints', experiment_name='loveda_2')
-                save_dir='./checkpoints', experiment_name='uavid_2_with_transformation')
+                # save_dir='./checkpoints', experiment_name='uavid_2_with_transformation')
+                save_dir='./checkpoints', experiment_name='uavid_upernet_patched_4_no_overlap_testaaaa')
                 # save_dir='./checkpoints', experiment_name='potsdam_2')

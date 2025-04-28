@@ -1,15 +1,18 @@
 import os
+import json
 import os.path as osp
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
-from config import set_seed
+from config import set_seed, CONFIG
 
+config = CONFIG()
 set_seed(seed=42)
 
 CLASSES = ('Clutter', 'Building', 'Road', 'Tree', 'LowVeg', 'Moving_Car', 'Static_Car', 'Human')
@@ -37,6 +40,9 @@ CLASS2PALETTE = {
 
 MEAN = [123.675 / 255.0, 116.28 / 255.0, 103.53 / 255.0]
 STD = [58.395 / 255.0, 57.12 / 255.0, 57.375 / 255.0]
+
+orig_H = 2160
+orig_W = 3840
 
 image_only_tf_train = transforms.Compose([
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05),
@@ -140,6 +146,7 @@ def transform_train(img, mask, image_size=(512, 512)):
 
     return img, mask
 
+
 def transform_mask(mask):
     # Mask-only
     mask = rgb_to_class(mask, PALETTE2CLASS)
@@ -226,31 +233,225 @@ class UAVIDDataset(Dataset):
         return img, mask
 
 
+class PatchedUAVIDDataset(UAVIDDataset):
+    def __init__(self, split: str, img_size: int, data_root=None):
+        if data_root is None:
+            raise ValueError("data_root must be specified for PatchedUAVIDDataset")
+        super().__init__(data_root=data_root,
+                         img_dir='images', mask_dir='labels',
+                         mode='val',
+                         img_suffix='.png', mask_suffix='.png',
+                         image_size=img_size,
+                         transform=None, target_transform=None)
+
+    # ↓ add the filename (without extension) to the returned tuple
+    def __getitem__(self, idx):
+        img, _ = super().__getitem__(idx)
+        base = os.path.splitext(os.path.basename(self.img_ids[idx]))[0]
+        return img, base
+
+
+class UAVIDPatchStitch(Dataset):
+    """
+    Stitches arbitrary patch grids back into one canvas.
+
+    Parameters
+    ----------
+    split : 'train' | 'val' | 'test'
+    rep   : 'logits' | 'argmax'
+    resize: (h, w) or None
+    expected_n : int or None
+        If given, keep only groups that contain exactly this number of patches
+        (4, 9, 60, 144, …).  If None, **any** complete group is kept.
+    """
+
+    def __init__(
+            self,
+            split="train",
+            rep="logits",
+            resize=None,
+            patch_meta=None,
+            logits_root=None,
+            label_root=None,
+            expected_n: int | None = None,
+    ):
+        assert rep in {"logits", "argmax"}
+        self.rep = rep
+        self.resize = resize
+        self.N_req = expected_n
+
+        self.patch_meta = patch_meta or os.path.join(
+            config.UAVID_patched['9']['no_overlap'][split], "patches_metadata.json"
+        )
+        self.logits_root = logits_root or config.UAVID_patch_inf['dino_mc']['9']['no_overlap'][split]
+        self.label_root = label_root or os.path.join(config.UAVID[split], "labels")
+
+        self.groups = self._collect_groups()
+        any_patch = next(iter(next(iter(self.groups.values()))))[0]
+        self.C = np.load(os.path.join(self.logits_root,
+                                      any_patch.replace(".png", ".npy"))).shape[0]
+        self.class_names = CLASSES
+
+    # ----------------------------------------------------------------------
+    def _collect_groups(self):
+        with open(self.patch_meta) as f:
+            meta = json.load(f)
+
+        groups = {}
+        for p_name, coord in meta.items():
+            base = p_name.rsplit("_", 1)[0]  # image_x_y.png → image
+            groups.setdefault(base, []).append((p_name, coord))
+
+        complete = {}
+        for base, lst in groups.items():
+            # filter out missing .npy
+            if all(os.path.isfile(os.path.join(self.logits_root,
+                                               p[0].replace(".png", ".npy"))) for p in lst):
+                if self.N_req is None or len(lst) == self.N_req:
+                    # row-major sort
+                    lst.sort(key=lambda t: (t[1]["y_start"], t[1]["x_start"]))
+                    complete[base] = lst
+
+        if not complete:
+            msg = "No groups match "
+            msg += f"N={self.N_req}" if self.N_req else "metadata"
+            raise RuntimeError(msg + f" under {self.logits_root}")
+        return complete
+
+    # helpers ---------------------------------------------------------------
+    @staticmethod
+    def _extent(coords):
+        return max(c["y_end"] for c in coords), max(c["x_end"] for c in coords)
+
+    # PyTorch API -----------------------------------------------------------
+    def __len__(self):
+        return len(self.groups)
+
+    def __getitem__(self, idx):
+        base, patches = list(self.groups.items())[idx]
+        coords_only = [c for _, c in patches]
+        H_big, W_big = self._extent(coords_only)
+
+        # canvas ───────────────────────────────────────────────────────────
+        if self.rep == "logits":
+            canvas = torch.zeros(self.C, H_big, W_big, dtype=torch.float32)
+        else:
+            canvas = torch.zeros(H_big, W_big, dtype=torch.int64)
+
+        for p_name, c in patches:
+            logit = torch.from_numpy(
+                np.load(os.path.join(self.logits_root, p_name.replace(".png", ".npy")))
+            )  # (C,h,w)
+
+            h_exp, w_exp = c["y_end"] - c["y_start"], c["x_end"] - c["x_start"]
+            if logit.shape[1:] != (h_exp, w_exp):
+                logit = F.interpolate(logit[None], size=(h_exp, w_exp),
+                                      mode="bicubic", align_corners=False).squeeze(0)
+
+            if self.rep == "logits":
+                canvas[:, c["y_start"]:c["y_end"], c["x_start"]:c["x_end"]] = logit
+            else:
+                canvas[c["y_start"]:c["y_end"], c["x_start"]:c["x_end"]] = logit.argmax(0)
+
+        # full-resolution ground truth ─────────────────────────────────────
+        gt_rgb = Image.open(os.path.join(self.label_root, base + ".png")).convert("RGB")
+        gt = torch.from_numpy(rgb_to_class(gt_rgb, PALETTE2CLASS)).long()
+
+        # optional resize ──────────────────────────────────────────────────
+        if self.resize:
+            h, w = self.resize
+            if self.rep == "logits":
+                canvas = F.interpolate(canvas[None], size=(h, w),
+                                       mode="bicubic", align_corners=False).squeeze(0)
+            else:
+                canvas = F.interpolate(canvas[None, None].float(), size=(h, w),
+                                       mode="bicubic").squeeze().long()
+            gt = F.interpolate(gt[None, None].float(), size=(h, w),
+                               mode="nearest").squeeze().long()
+
+        return canvas, gt
+
+
+def tensor_to_rgb(mask: torch.Tensor) -> np.ndarray:
+    """
+    Convert a (H,W) class–index tensor to an RGB uint8 image using UAVID palette.
+    """
+    mask_np = mask.cpu().numpy()
+    h, w = mask_np.shape
+    rgb = np.zeros((h, w, 3), dtype=np.uint8)
+    for cls, color in CLASS2PALETTE.items():
+        rgb[mask_np == cls] = color  # color = (R,G,B)
+    return rgb
+
+
+def show_patch_aggregation(logits: torch.Tensor, gt: torch.Tensor, title=''):
+    """
+    Visualise stitched logits vs. ground-truth mask.
+      • logits … (C,H,W)  OR  (H,W) argmax mask
+      • gt     … (H,W)    class indices
+    """
+    if logits.ndim == 3:  # convert logits → predicted mask
+        pred = logits.argmax(0)
+    else:
+        pred = logits.clone()
+
+    pred_rgb = tensor_to_rgb(pred)
+    gt_rgb = tensor_to_rgb(gt)
+
+    fig, ax = plt.subplots(1, 2, figsize=(8, 4))
+    ax[0].imshow(pred_rgb);
+    ax[0].set_title('Predicted');
+    ax[0].axis('off')
+    ax[1].imshow(gt_rgb);
+    ax[1].set_title('Ground truth');
+    ax[1].axis('off')
+    if title:
+        fig.suptitle(title, fontsize=14)
+    plt.tight_layout();
+    plt.show()
+
+
 if __name__ == '__main__':
-    from config import CONFIG
+    # choose a grid size – here 3×3 patches with 10 % overlap
+    patch_meta = config.UAVID_patched['9']['no_overlap']['train'] + '/patches_metadata.json'
+    logits_root = config.UAVID_patch_inf['dino_mc']['9']['no_overlap']['train']
+    label_root = config.UAVID['train'] + '/labels'
 
-    config = CONFIG()
-    batch_size = config.batch_size  # 4
-    image_size = config.image_size  # 224
+    dataset_ = UAVIDPatchStitch(split="train",
+                                patch_meta=patch_meta,
+                                logits_root=logits_root,
+                                label_root=label_root,
+                                expected_n=9,  # force exactly 9 patches
+                                rep="logits",  # logits or argmax
+                                resize=None)  # resize=(512, 512)
+    print(len(dataset_), dataset_[0][0].shape, dataset_[0][1].shape)
+    show_patch_aggregation(dataset_[0][0], dataset_[0][1])
 
-    train_data_root = config.UAVID['train']
-    val_data_root = config.UAVID['val']
-
-    train_dataset = UAVIDDataset(
-        data_root=train_data_root, img_dir='images', mask_dir='labels', mode='train',
-        img_suffix='.png', mask_suffix='.png',
-        image_size=224, transform=None, target_transform=None
-    )
-
-    val_dataset = UAVIDDataset(
-        data_root=val_data_root, img_dir='images', mask_dir='labels', mode='val',
-        img_suffix='.png', mask_suffix='.png',
-        image_size=224, transform=None, target_transform=None
-    )
-
-    img, mask = train_dataset[0]
-    show_image_and_mask(img, mask)
-
-    img_val, mask_val = val_dataset[0]
-    show_image_and_mask(img_val, mask_val)
-    print("aaa")
+    # Example usage: UAVIDDataset
+    # from config import CONFIG
+    #
+    # config = CONFIG()
+    # batch_size = config.batch_size  # 4
+    # image_size = config.image_size  # 224
+    #
+    # train_data_root = config.UAVID['train']
+    # val_data_root = config.UAVID['val']
+    #
+    # train_dataset = UAVIDDataset(
+    #     data_root=train_data_root, img_dir='images', mask_dir='labels', mode='train',
+    #     img_suffix='.png', mask_suffix='.png',
+    #     image_size=224, transform=None, target_transform=None
+    # )
+    #
+    # val_dataset = UAVIDDataset(
+    #     data_root=val_data_root, img_dir='images', mask_dir='labels', mode='val',
+    #     img_suffix='.png', mask_suffix='.png',
+    #     image_size=224, transform=None, target_transform=None
+    # )
+    #
+    # img, mask = train_dataset[0]
+    # show_image_and_mask(img, mask)
+    #
+    # img_val, mask_val = val_dataset[0]
+    # show_image_and_mask(img_val, mask_val)
+    # print("aaa")

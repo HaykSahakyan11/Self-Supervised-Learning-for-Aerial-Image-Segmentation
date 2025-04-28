@@ -15,6 +15,7 @@ def set_seed(seed=42):
     sklearn.utils.check_random_state(seed)  # scikit-learn
     torch.manual_seed(seed)  # PyTorch
     torch.cuda.manual_seed(seed)  # For CUDA-based computations
+    torch.cuda.manual_seed_all(seed)
     torch.backends.cudnn.deterministic = True  # Ensure deterministic behavior
     torch.backends.cudnn.benchmark = True
 
@@ -22,34 +23,185 @@ def set_seed(seed=42):
 BASE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '.'))
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+
 class CONFIG:
     def __init__(self):
         self.base_path = BASE_PATH
         self.dataset_path = os.path.join(BASE_PATH, 'datasets')
         self.model_weights_path = os.path.join(BASE_PATH, 'model_weights')
+        self.finetune_path = os.path.join(self.model_weights_path, 'dino_mc_finetune')
+        self.patche_agg_path = os.path.join(BASE_PATH, 'patche_aggregation')
+        self.inference_data_path = os.path.join(self.dataset_path, 'inference_data')
 
-        # TODO Update the paths
         self.best_models = {
-            'UAVID': os.path.join(self.model_weights_path, 'upernet/best_checkpoint_dinomcvitsmall_uavid_2_with_transformation.pth'),
+            'UAVID': os.path.join(self.model_weights_path,
+                                  'upernet/best_checkpoint_dinomcvitsmall_uavid_2_with_transformation.pth'),
             'POTSDAM': os.path.join(self.model_weights_path, 'upernet/best_checkpoint_dinomcvitsmall_potsdam_2.pth'),
-            'LOVEDA': os.path.join(self.model_weights_path, 'upernet/best_checkpoint_dinomcvitsmall_loveda_2.pth')
+            'LOVEDA': os.path.join(self.model_weights_path, 'upernet/best_checkpoint_dinomcvitsmall_loveda_2.pth'),
+            'UAVID_patched': {
+                'dino_deit': {
+                    '4': os.path.join(
+                        self.model_weights_path,
+                        'upernet_patched/best_checkpoint_dinomcvitsmall_uavid_upernet_patched_2.pth'
+                    ),  # mIoU 50.0626
+                },
+                'dino_mc': {
+                    '4': os.path.join(
+                        self.model_weights_path,
+                        'upernet_patched/best_checkpoint_dinomcvitsmall_uavid_upernet_new_patched_4_no_overlap.pth'
+                    ),  # mIoU 52.6396
+                }
+            }
         }
 
-        self.dino_mc_checkpoint = {
+        self.vit_configs = {
             'vit_small': {
-                '8': 'dino_mc/dino_deitsmall8_pretrain.pth0',
-                '16': 'dino_mc/dino_deitsmall16_pretrain.pth',
+                'ckpt_key': 'vit_small',
+                'embed_dim': 384,
+                'num_layers': 12,
+                'num_heads': 6,
+                'mlp_ratio': 4,
+                'drop_path_rate': 0.1,
+                'out_indices': (3, 5, 7, 11)
             },
             'vit_base': {
-                '8': 'dino_mc/dino_vitbase8_pretrain',
-                '16': 'dino_mc/dino_vitbase16_pretrain',
+                'ckpt_key': 'vit_base',
+                'embed_dim': 768,
+                'num_layers': 12,
+                'num_heads': 12,
+                'mlp_ratio': 4,
+                'drop_path_rate': 0.1,
+                'out_indices': (3, 5, 7, 11)
             }
+        }
+
+        self.dino_deit = {
+            'vit_small': {
+                '8': 'dino_deit/dino_deitsmall8_pretrain.pth',
+                '16': 'dino_deit/dino_deitsmall16_pretrain.pth',
+            },
+            'vit_base': {
+                '8': 'dino_deit/dino_vitbase8_pretrain',
+                '16': 'dino_deit/dino_vitbase16_pretrain',
+            }
+        }
+
+        self.dino_mc = {
+            'vit_small': {
+                '8': 'dino_mc/vit_mc_checkpoint300.pth',
+                '16': 'dino_mc/vit_mc_checkpoint300.pth',
+            }
+
         }
 
         self.UAVID = {
             "train": os.path.join(self.dataset_path, 'UAVID/train'),
             "val": os.path.join(self.dataset_path, 'UAVID/val'),
             "test": os.path.join(self.dataset_path, 'UAVID/test')
+        }
+
+        self.UAVID_patched = {
+            '4': {
+                'no_overlap': {
+                    "train": os.path.join(self.dataset_path, 'UAVID_patched_4_no_overlap/train'),
+                    "val": os.path.join(self.dataset_path, 'UAVID_patched_4_no_overlap/val'),
+                },
+                'overlap': {
+                    "train": os.path.join(self.dataset_path, 'UAVID_patched_4_overlap_01/train'),
+                    "val": os.path.join(self.dataset_path, 'UAVID_patched_4_overlap_01/val'),
+                }
+            },
+            '9': {
+                'no_overlap': {
+                    "train": os.path.join(self.dataset_path, 'UAVID_patched_9_no_overlap/train'),
+                    "val": os.path.join(self.dataset_path, 'UAVID_patched_9_no_overlap/val'),
+                },
+                'overlap': {
+                    "train": os.path.join(self.dataset_path, 'UAVID_patched_9_overlap_01/train'),
+                    "val": os.path.join(self.dataset_path, 'UAVID_patched_9_overlap_01/val'),
+                }
+            },
+            '224_224': {
+                "train": os.path.join(self.dataset_path, 'UAVID_patched_240_240_count_144_overlap_0.0/train'),
+                "val": os.path.join(self.dataset_path, 'UAVID_patched_240_240_count_144_overlap_0.0/val'),
+            },
+            '360_384': {
+                "train": os.path.join(self.dataset_path, 'UAVID_patched_360_384_count_60_overlap_0.0/train'),
+                "val": os.path.join(self.dataset_path, 'UAVID_patched_360_384_count_60_overlap_0.0/val'),
+            }
+        }
+
+        self.UAVID_patch_inf = {
+            'dino_deit': {
+                '4': {
+                    'no_overlap': {
+                        "train": os.path.join(self.inference_data_path, 'deit', 'UAVID_patched_4_no_overlap/train'),
+                        "val": os.path.join(self.inference_data_path, 'deit', 'UAVID_patched_4_no_overlap/val'),
+                    },
+                    'overlap': {
+                        "train": os.path.join(self.inference_data_path, 'deit', 'UAVID_patched_4_overlap_01/train'),
+                        "val": os.path.join(self.inference_data_path, 'deit', 'UAVID_patched_4_overlap_01/val'),
+                    }
+                },
+                '9': {
+                    'no_overlap': {
+                        "train": os.path.join(self.inference_data_path, 'deit', 'UAVID_patched_9_no_overlap/train'),
+                        "val": os.path.join(self.inference_data_path, 'deit', 'UAVID_patched_9_no_overlap/val'),
+                    },
+                    'overlap': {
+                        "train": os.path.join(self.inference_data_path, 'deit', 'UAVID_patched_9_overlap_01/train'),
+                        "val": os.path.join(self.inference_data_path, 'deit', 'UAVID_patched_9_overlap_01/val'),
+                    }
+                },
+                '224_224': {
+                    "train": os.path.join(self.inference_data_path,
+                                          'deit', 'UAVID_patched_240_240_count_144_overlap_0.0/train'),
+                    "val": os.path.join(self.inference_data_path, 'deit',
+                                        'UAVID_patched_240_240_count_144_overlap_0.0/val'),
+                },
+                '360_384': {
+                    "train": os.path.join(self.inference_data_path, 'deit',
+                                          'UAVID_patched_360_384_count_60_overlap_0.0/train'),
+                    "val": os.path.join(self.inference_data_path, 'deit',
+                                        'UAVID_patched_360_384_count_60_overlap_0.0/val'),
+                }
+            },
+            'dino_mc': {
+                '4': {
+                    'no_overlap': {
+                        "train": os.path.join(self.inference_data_path, 'dino_mc', 'UAVID_patched_4_no_overlap/train'),
+                        "val": os.path.join(self.inference_data_path, 'dino_mc', 'UAVID_patched_4_no_overlap/val'),
+                    },
+                    'overlap': {
+                        "train": os.path.join(self.inference_data_path, 'dino_mc', 'UAVID_patched_4_overlap_01/train'),
+                        "val": os.path.join(self.inference_data_path, 'dino_mc', 'UAVID_patched_4_overlap_01/val'),
+                    }
+                },
+                '9': {
+                    'no_overlap': {
+                        "train": os.path.join(self.inference_data_path, 'dino_mc', 'UAVID_patched_9_no_overlap/train'),
+                        "val": os.path.join(self.inference_data_path, 'dino_mc', 'UAVID_patched_9_no_overlap/val'),
+                    },
+                    'overlap': {
+                        "train": os.path.join(self.inference_data_path, 'dino_mc', 'UAVID_patched_9_overlap_01/train'),
+                        "val": os.path.join(self.inference_data_path, 'dino_mc', 'UAVID_patched_9_overlap_01/val'),
+                    }
+                },
+                '224_224': {
+                    "train": os.path.join(self.inference_data_path,
+                                          'dino_mc', 'UAVID_patched_240_240_count_144_overlap_0.0/train'),
+                    "val": os.path.join(self.inference_data_path, 'dino_mc',
+                                        'UAVID_patched_240_240_count_144_overlap_0.0/val'),
+                },
+                '360_384': {
+                    "train": os.path.join(self.inference_data_path, 'dino_mc',
+                                          'UAVID_patched_360_384_count_60_overlap_0.0/train'),
+                    "val": os.path.join(self.inference_data_path, 'dino_mc',
+                                        'UAVID_patched_360_384_count_60_overlap_0.0/val'),
+                }
+
+            },
+
         }
 
         self.POTSDAM = {
@@ -64,9 +216,33 @@ class CONFIG:
             "test": os.path.join(self.dataset_path, 'LOVEDA/Test')
         }
 
+        self.train_configs = {
+            'num_epochs': 100,
+            # 'learning_rate': 1e-4,
+            'learning_rate': 3e-4,
+            'weight_decay': 1e-4,
+            'eta_min': 1e-6,
+            'warmup_epochs': 5,
+            'warmup_lr': 1e-6,
+            'lr_scheduler': 'cosine',
+            'lr_decay_epochs': [30, 60],
+            'lr_decay_rate': 0.1,
+            'epochs': 100,
+        }
 
+        self.agg_train_configs = {
+            'num_epochs': 50,
+            'learning_rate': 1e-4,
+            'weight_decay': 1e-5,
+            'eta_min': 1e-6,
+            'base_channels': 64,
+        }
 
+        # self.batch_size = 2
         self.batch_size = 4
         self.image_size = 224
+        self.big_image_size = 512
+        self.patch_count = 4
+        self.patch_size = 8
 
         self.wandb_api_key = ""
