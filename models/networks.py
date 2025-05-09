@@ -92,23 +92,26 @@ class UPerNetDinoDeiT(EncoderDecoder):
             num_heads = config.vit_configs['vit_small']['num_heads']
             out_indices = config.vit_configs['vit_small']['out_indices']
             out_layers_count = len(out_indices)  # 4
-            if patch_size == 8 and not pretrained_ckpt:
-                pretrained_ckpt = config.dino_deit["vit_small"]["8"]
-            elif patch_size == 16 and not pretrained_ckpt:
-                pretrained_ckpt = config.dino_deit["vit_small"]["16"]
-            else:
-                raise NotImplementedError(f"Unsupported patch size: {patch_size}")
+            if not pretrained_ckpt:
+                if patch_size == 8:
+                    pretrained_ckpt = config.dino_deit["vit_small"]["8"]
+                elif patch_size == 16:
+                    pretrained_ckpt = config.dino_deit["vit_small"]["16"]
+                else:
+                    raise NotImplementedError(f"Unsupported patch size: {patch_size}")
         elif backbone_type == 'DinoDeiTBase':
             embed_dim = config.vit_configs['vit_base']['embed_dim']
             num_heads = config.vit_configs['vit_base']['num_heads']
             out_indices = config.vit_configs['vit_base']['out_indices']
             out_layers_count = len(out_indices)  # 4
-            if patch_size == 8 and not pretrained_ckpt:
-                pretrained_ckpt = config.dino_deit["vit_base"]["8"]
-            elif patch_size == 16 and not pretrained_ckpt:
-                pretrained_ckpt = config.dino_deit["vit_base"]["16"]
-            else:
-                raise NotImplementedError(f"Unsupported patch size: {patch_size}")
+            if not pretrained_ckpt:
+                if patch_size == 8:
+                    pretrained_ckpt = config.dino_deit["vit_base"]["8"]
+                elif patch_size == 16:
+                    pretrained_ckpt = config.dino_deit["vit_base"]["16"]
+                else:
+                    raise NotImplementedError(f"Unsupported patch size: {patch_size}")
+
         else:
             raise NotImplementedError(f"Unsupported backbone: {backbone_type}")
         pretrained_ckpt = os.path.join(weights_dir, pretrained_ckpt)

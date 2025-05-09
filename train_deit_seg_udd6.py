@@ -6,7 +6,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from data_process.uavid_dataset import UAVIDDataset
+from data_process.udd6_dataset import UDD6Dataset
 from data_process.potsdam_dataset import POTSDAMDataset
 from data_process.loveda_dataset import LOVEDADataset
 from utils.metric_tool import (
@@ -45,7 +45,7 @@ def train_model(
             "architecture": "DinoDeiT",
             # "dataset": "LOVEDA",
             # "dataset": "POTSDAM",
-            "dataset": "UAVID",
+            "dataset": "UDD6",
             "decode": "upernet_uperhead",
             "interpolation_mode": interpolation_mode,
             "weight_decay": weight_decay,
@@ -183,23 +183,25 @@ if __name__ == "__main__":
     # train_data_root = config.UAVID['train']
     # val_data_root = config.UAVID['val']
 
-    # UAVID_patched training
+    # # UAVID_patched training
     # train_data_root = config.UAVID_patched['4']['train']
     # val_data_root = config.UAVID_patched['4']['val']
 
-    # UAVID_patched training
-    train_data_root = config.UAVID_patched['3_4']['train']
-    val_data_root = config.UAVID_patched['3_4']['val']
+    # # UDD6_patched training
+    # train_data_root = config.UDD6['train']
+    # val_data_root = config.UDD6['val']
 
-    train_dataset = UAVIDDataset(
-        data_root=train_data_root, img_dir='images', mask_dir='labels', mode='train',
-        img_suffix='.png', mask_suffix='.png',
-        image_size=image_size, transform=None, target_transform=None
+    # UDD6_patched training
+    train_data_root = config.UDD6_patched['4']['train']
+    val_data_root = config.UDD6_patched['4']['val']
+
+    train_dataset = UDD6Dataset(
+        data_root=train_data_root, img_dir='src', mask_dir='gt',
+        image_size=image_size, mode='train', use_metadata=False,
     )
-    val_dataset = UAVIDDataset(
-        data_root=val_data_root, img_dir='images', mask_dir='labels', mode='val',
-        img_suffix='.png', mask_suffix='.png',
-        image_size=image_size, transform=None, target_transform=None
+    val_dataset = UDD6Dataset(
+        data_root=val_data_root, img_dir='src', mask_dir='gt',
+        image_size=image_size, mode='val', use_metadata=False,
     )
 
     # # Potsdam training
@@ -241,5 +243,6 @@ if __name__ == "__main__":
                 # save_dir='./checkpoints', experiment_name='loveda_2')
                 # save_dir='./checkpoints', experiment_name='uavid_2_with_transformation')
                 # save_dir='./checkpoints', experiment_name='uavid_upernet_patched_4_no_overlap_dino_deit')
-                save_dir='./checkpoints', experiment_name='uavid_upernet_patched_3_4_dino_deit_afine_v1_fip_0.2')
+                # save_dir='./checkpoints', experiment_name='udd6_upernet_patched_0_dino_deit_afine_test_1')
+                save_dir='./checkpoints', experiment_name='udd6_upernet_patched_4_dino_deit_afine_test_real')
     # save_dir='./checkpoints', experiment_name='potsdam_2')

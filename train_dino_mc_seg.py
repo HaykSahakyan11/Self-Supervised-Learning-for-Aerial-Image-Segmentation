@@ -12,7 +12,7 @@ from config import CONFIG, set_seed
 from data_process.uavid_dataset import UAVIDDataset
 from utils.loss import DiceCrossEntropyLoss
 from utils.metric_tool import calculate_per_class_metrics, print_class_metrics_table, write_epoch_csv
-from models.networks import DinoMCBackbone, UPerNetDinoMC
+from models.networks import  UPerNetDinoMC
 
 set_seed(seed=42)
 config = CONFIG()
@@ -46,11 +46,11 @@ def train_model(
         name=f"experiment_{experiment_name}",
         config={
             "learning_rate": lr,
-            "architecture": "ViT",
+            "architecture": "DinoMC",
             # "dataset": "LOVEDA",
             # "dataset": "POTSDAM",
             "dataset": "UAVID",
-            "decode": "upernet_uperhead_patched_features_pyramid",
+            "decode": "upernet_uperhead",
             "interpolation_mode": interpolation_mode,
             "weight_decay": weight_decay,
             "eta_min": eta_min,
@@ -97,6 +97,7 @@ def train_model(
             images, masks = images.to(device), masks.to(device)
             optimizer.zero_grad()
 
+            # TODO train without encoder+decoder
             # build meta
             img_meta = [{
                 'img_shape': (images.size(2), images.size(3), 3),
@@ -105,14 +106,14 @@ def train_model(
                 'scale_factor': 1.0,
             } for _ in range(images.size(0))]
 
-            # forward through encoder+decoder, gives full‑res logits
-            logits = model.encode_decode(images, img_meta)
+            # # forward through encoder+decoder, gives full‑res logits
+            # logits = model.encode_decode(images, img_meta)
 
-            # logits = model(imgs)  # (B, C, H, W)
-            # logits = F.interpolate(
-            #     logits, size=masks.shape[-2:],
-            #     mode="bilinear", align_corners=False
-            # )
+            logits = model(images)  # (B, C, H, W)
+            logits = F.interpolate(
+                logits, size=masks.shape[-2:],
+                mode="bilinear", align_corners=False
+            )
             loss = criterion(logits, masks)
             loss.backward()
             optimizer.step()
@@ -130,20 +131,22 @@ def train_model(
                 images = images.to(device)
                 # images, masks = images.to(device), masks.to(device)
 
-                img_meta = [{
-                    'img_shape': (images.size(2), images.size(3), 3),
-                    'ori_shape': (images.size(2), images.size(3), 3),
-                    'pad_shape': (images.size(2), images.size(3), 3),
-                    'scale_factor': 1.0,
-                } for _ in range(images.size(0))]
-                logits = model.encode_decode(images, img_meta)
-                logits = logits.to('cpu')
-
+                # img_meta = [{
+                #     'img_shape': (images.size(2), images.size(3), 3),
+                #     'ori_shape': (images.size(2), images.size(3), 3),
+                #     'pad_shape': (images.size(2), images.size(3), 3),
+                #     'scale_factor': 1.0,
+                # } for _ in range(images.size(0))]
                 # logits = model(images)
-                # logits = F.interpolate(
-                #     logits.cpu(), size=masks.shape[-2:],
-                #     mode="bilinear", align_corners=False
-                # )
+                # logits = model.encode_decode(images, img_meta)
+                # logits = logits.to('cpu')
+
+                logits = model(images)
+                logits = F.interpolate(
+                    logits.cpu(), size=masks.shape[-2:],
+                    mode="bilinear", align_corners=False
+                )
+                logits = logits.to('cpu')
                 val_loss = criterion(logits, masks)
                 total_val_loss += val_loss.item()
 
@@ -209,18 +212,32 @@ if __name__ == "__main__":
     set_seed(42)
     cfg = CONFIG()
 
+    # # # UAVID training
+    # train_data_root = config.UAVID['train']
+    # val_data_root = config.UAVID['val']
+
+    # # UAVID_patched training
+    # train_data_root = config.UAVID_patched['4']['train']
+    # val_data_root = config.UAVID_patched['4']['val']
+
+    # UAVID_patched training
+    train_data_root = config.UAVID_patched['3_4']['train']
+    val_data_root = config.UAVID_patched['3_4']['val']
+
     # Data
     train_ds = UAVIDDataset(
-        data_root=cfg.UAVID_patched["4"]["no_overlap"]["train"],
-        # data_root=cfg.UAVID_patched["9"]["no_overlap"]["train"],
+        data_root=train_data_root,
+        # data_root=cfg.UAVID_patched["4"]["train"],
+        # data_root=cfg.UAVID_patched["9"]["train"],
         # data_root=cfg.UAVID_patched['224_224']["train"],
         # data_root=cfg.UAVID_patched['360_384']["train"],
         img_dir="images", mask_dir="labels",
         image_size=cfg.image_size
     )
     val_ds = UAVIDDataset(
-        data_root=cfg.UAVID_patched["4"]["no_overlap"]["val"],
-        # data_root=cfg.UAVID_patched["9"]["no_overlap"]["val"],
+        data_root=val_data_root,
+        # data_root=cfg.UAVID_patched["4"]["val"],
+        # data_root=cfg.UAVID_patched["9"]["val"],
         # data_root=cfg.UAVID_patched['224_224']["val"],
         # data_root=cfg.UAVID_patched['360_384']["val"],
         img_dir="images", mask_dir="labels",
@@ -249,5 +266,6 @@ if __name__ == "__main__":
     train_model(model, train_loader, val_loader, epochs=100, device="cuda",
                 # save_dir='./checkpoints', experiment_name='uavid_upernet_backbone_ft_decod_tr_patched_224_224_no_overlap',
                 # save_dir='./checkpoints', experiment_name='uavid_upernet_backbone_ft_decod_tr_patched_360_384_no_overlap',
-                save_dir='./checkpoints', experiment_name='uavid_upernet_backbone_no_ft_decod_tr_patched_4_no_overlap_aa',
+                # save_dir='./checkpoints', experiment_name='uavid_upernet_backbone_no_ft_decod_tr_patched_4_no_overlap_aaaaa_v2',
+                save_dir='./checkpoints', experiment_name='uavid_upernet_dino_mc_patched_3_4_afine_v1_fip_02',
                 train_backbone=False, train_decoder=True)

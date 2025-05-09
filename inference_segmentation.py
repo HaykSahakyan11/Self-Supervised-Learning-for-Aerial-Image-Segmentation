@@ -9,7 +9,7 @@ import albumentations as A
 
 from PIL import Image
 
-from models.networks import UPerNetDinoMCViT
+from models.networks import UPerNetDinoVit
 from data_process import uavid_dataset, potsdam_dataset, loveda_dataset
 from config import CONFIG, set_seed, device
 
@@ -68,7 +68,7 @@ def inference(image_path, output_path=None, image_size=224,
 
     backbone_type = BACKBONE_CONFIG[backbone_size]['type']
     backbone_ckpt_key = BACKBONE_CONFIG[backbone_size]['ckpt_key']
-    backbone_ckpt = config.dino_mc_checkpoint[backbone_ckpt_key][str(patch_size)]
+    backbone_ckpt = config.dino_vit[backbone_ckpt_key][str(patch_size)]
 
     num_classes = len(dataset_module.CLASSES)
     class_names = dataset_module.CLASSES
@@ -98,16 +98,17 @@ def inference(image_path, output_path=None, image_size=224,
 def load_trained_model(
         seg_model_ckpt, backbone_ckpt,
         image_size=224, backbone_type='DinoMCViTSmall',
-        patch_size=16,
+        patch_size=8,
         num_classes=8
 ):
     print(f"[INFO] Loading model from {seg_model_ckpt}")
-    model = UPerNetDinoMCViT(
+    model = UPerNetDinoVit(
         num_classes=num_classes,
         backbone_type=backbone_type,
         backbone_checkpoint=backbone_ckpt,
         img_size=image_size,
-        patch_size=patch_size
+        patch_size=patch_size,
+        use_neck=False
     )
     checkpoint = torch.load(seg_model_ckpt, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])

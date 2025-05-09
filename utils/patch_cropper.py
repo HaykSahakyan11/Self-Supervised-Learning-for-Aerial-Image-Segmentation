@@ -21,7 +21,7 @@ Example
 import cv2
 import math, os, json
 
-from __future__ import annotations
+# from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Tuple, Union
 
@@ -189,34 +189,53 @@ def split_image_and_mask_custom_grid(
 if __name__ == '__main__':
     meta = {}
 
-    # mode = "train"
-    mode = "val"
+    mode = "train"
+    # mode = "val"
     base_path = config.base_path
     overlap = 0.0  # 10 % overlap – set to 0 for none
 
     # For grid patching grid = m = n × n - split_and_save_image
-    grid = 81  # 2×2 patches, 9 for 3×3 patches
+    grid = 4  # 2×2 patches, 9 for 3×3 patches
 
-    H_sep_num = 6  # 9
-    W_sep_num = 10  # 16
+    H_sep_num = 3  # 9
+    W_sep_num = 4  # 16
     orig_H = 2160
     orig_W = 3840
     out_H = orig_H // H_sep_num
     out_W = orig_W // W_sep_num
 
-    # dataset
+    # dataset UAVID
+
     img_dir = os.path.join(base_path, f"datasets/UAVID/{mode}/images/")
     msk_dir = os.path.join(base_path, f"datasets/UAVID/{mode}/labels/")
 
     # For grid patching grid = m = n × n - split_and_save_image
-    # out_img = os.path.join(base_path, f"datasets/UAVID_patched_{grid}_overlap_{overlap}/{mode}/images")
-    # out_msk = os.path.join(base_path, f"datasets/UAVID_patched_{grid}_overlap_{overlap}/{mode}/labels")
+
+    # out_img = os.path.join(base_path, f"datasets/UAVID_patched_{grid}/{mode}/images")
+    # out_msk = os.path.join(base_path, f"datasets/UAVID_patched_{grid}/{mode}/labels")
 
     # For custom grid patching grid = m × n - split_image_and_mask_custom_grid
     out_img = os.path.join(base_path,
-                           f"datasets/UAVID_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}_overlap_{overlap}/{mode}/images")
+                           f"datasets/UAVID_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}/{mode}/images")
     out_msk = os.path.join(base_path,
-                           f"datasets/UAVID_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}_overlap_{overlap}/{mode}/labels")
+                           f"datasets/UAVID_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}/{mode}/labels")
+
+
+    # dataset UDD6
+
+    # img_dir = os.path.join(base_path, f"datasets/UDD6/{mode}/src/")
+    # msk_dir = os.path.join(base_path, f"datasets/UDD6/{mode}/gt/")
+    #
+    # # 1 For grid patching grid = m = n × n - split_and_save_image
+    # out_img = os.path.join(base_path, f"datasets/UDD6_patched_{grid}/{mode}/src")
+    # out_msk = os.path.join(base_path, f"datasets/UDD6_patched_{grid}/{mode}/gt")
+
+    # 2 For custom grid patching grid = m × n - split_image_and_mask_custom_grid
+
+    # out_img = os.path.join(base_path,
+    #                        f"datasets/UDD6_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}_/{mode}/src")
+    # out_msk = os.path.join(base_path,
+    #                        f"datasets/UDD6_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}/{mode}/gt")
 
     # for fname in os.listdir(img_dir):
     #     split_and_save_image(
@@ -240,11 +259,19 @@ if __name__ == '__main__':
             meta_dict=meta
         )
 
+    # UAVID
     # For grid patching grid = m = n × n - split_and_save_image
     # metadata_path = os.path.join(base_path,
-    #                              f"datasets/UAVID_patched_{grid}_overlap_{overlap}/{mode}/patches_metadata.json")
+    #                              f"datasets/UAVID_patched_{grid}/{mode}/patches_metadata.json")
     metadata_path = os.path.join(base_path,
-                                 f"datasets/UAVID_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}_overlap_{overlap}/{mode}/patches_metadata.json")
+                                 f"datasets/UAVID_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}/{mode}/patches_metadata.json")
+
+    # UDD6
+    # For grid patching grid = m = n × n - split_and_save_image
+    # metadata_path = os.path.join(base_path,
+    #                              f"datasets/UDD6_patched_{grid}/{mode}/patches_metadata.json")
+    # metadata_path = os.path.join(base_path,
+    #                              f"datasets/UDD6_patched_{out_H}_{out_W}_count_{H_sep_num * W_sep_num}/{mode}/patches_metadata.json")
 
     with open(metadata_path, "w") as fp:
         json.dump(meta, fp, indent=2)

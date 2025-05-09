@@ -10,8 +10,8 @@ from utils.metric_tool import print_class_metrics_table
 
 config = CONFIG()
 
-patch_meta = config.UAVID_patched['9']['no_overlap']['val'] + '/patches_metadata.json'
-logits_root = config.UAVID_patch_inf['dino_mc']['9']['no_overlap']['val']
+patch_meta = config.UAVID_patched['4']['val'] + '/patches_metadata.json'
+logits_root = config.UAVID_patch_inf['dino_deit']['4']['val']
 label_root = config.UAVID['val'] + '/labels'
 orig_h = 2160
 orig_w = 3840
@@ -21,7 +21,7 @@ ds = UAVIDPatchStitch(
     patch_meta=patch_meta,
     logits_root=logits_root,
     label_root=label_root,
-    expected_n=9,  # 4-patch grid in this example
+    expected_n=4,  # 4-patch grid in this example
     rep="logits",  # returns (C,H,W) logits
     resize=(orig_h, orig_w)  # keep native 2160×3840
 )

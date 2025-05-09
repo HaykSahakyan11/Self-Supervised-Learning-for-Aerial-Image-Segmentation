@@ -71,8 +71,8 @@ if __name__ == "__main__":
     seg_ckpt = config.best_models['UAVID_patched']['dino_mc'][str(patche_count)]
 
     for split in ['train', 'val']:
-        data_root = config.UAVID_patched['4']['no_overlap'][split]
-        save_dir = config.UAVID_patch_inf['dino_mc']['4']['no_overlap'][split]
+        data_root = config.UAVID_patched['4'][split]
+        save_dir = config.UAVID_patch_inf['dino_mc']['4'][split]
         os.makedirs(save_dir, exist_ok=True)
         export_dino_mc_split_logits(
             split=split, batch=batch_size,

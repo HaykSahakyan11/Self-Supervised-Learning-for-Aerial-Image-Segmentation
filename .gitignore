@@ -24,7 +24,7 @@ venv.bak/
 datasets/
 
 # Weights and checkpoints
-model_weights/
+#model_weights/
 checkpoints/
 
 # Logs and temporary files
